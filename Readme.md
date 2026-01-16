@@ -362,7 +362,7 @@ sudo apt install -y keepalived
 ## Step 3.2: สร้าง Health Check Script (ทั้ง 2 nodes - เหมือนกัน)
 
 ```bash
-sudo tee /usr/local/bin/check_nfs_ha. sh << 'EOF'
+sudo tee /usr/local/bin/check_nfs_ha.sh << 'EOF'
 #!/bin/bash
 
 # ตรวจสอบ NFS server
@@ -779,7 +779,7 @@ case $STATE in
         /usr/local/bin/keepalived_backup.sh
         ;;
     "FAULT")
-        /usr/local/bin/keepalived_fault. sh "$@"
+        /usr/local/bin/keepalived_fault.sh "$@"
         ;;
     *)
         log "Unknown state: $STATE"
@@ -881,7 +881,7 @@ sudo chmod 644 /var/log/nfs-ha.log
 sudo mkdir -p /etc/systemd/system/keepalived.service.d
 
 # สร้าง override file
-sudo tee /etc/systemd/system/keepalived.service. d/cleanup.conf << 'EOF'
+sudo tee /etc/systemd/system/keepalived.service.d/cleanup.conf << 'EOF'
 [Service]
 # Run cleanup before stopping keepalived
 ExecStop=/usr/local/bin/keepalived_cleanup.sh
@@ -1093,7 +1093,7 @@ sudo ufw reload
 ### Script 1: nfs_ha_status.sh (Full status)
 
 ```bash
-sudo tee /usr/local/bin/nfs_ha_status. sh << 'EOF'
+sudo tee /usr/local/bin/nfs_ha_status.sh << 'EOF'
 #!/bin/bash
 
 echo "=========================================="
@@ -1173,7 +1173,7 @@ EOF
 sudo chmod +x /usr/local/bin/nfs_ha_status.sh
 ```
 
-### Script 2: nfs_ha_quick. sh (Quick status)
+### Script 2: nfs_ha_quick.sh (Quick status)
 
 ```bash
 sudo tee /usr/local/bin/nfs_ha_quick.sh << 'EOF'
@@ -1304,12 +1304,12 @@ sudo chmod +x /usr/local/bin/nfs_ha_monitor.sh
 ## Step 5.2: สร้าง Aliases (ทั้ง 2 nodes)
 
 ```bash
-cat >> ~/. bashrc << 'EOF'
+cat >> ~/.bashrc << 'EOF'
 
 # NFS HA Aliases
-alias nfs-status='sudo /usr/local/bin/nfs_ha_status. sh'
-alias nfs-quick='sudo /usr/local/bin/nfs_ha_quick. sh'
-alias nfs-monitor='sudo /usr/local/bin/nfs_ha_monitor. sh'
+alias nfs-status='sudo /usr/local/bin/nfs_ha_status.sh'
+alias nfs-quick='sudo /usr/local/bin/nfs_ha_quick.sh'
+alias nfs-monitor='sudo /usr/local/bin/nfs_ha_monitor.sh'
 alias nfs-log='sudo tail -f /var/log/nfs-ha.log'
 alias nfs-drbd='sudo drbdadm status nfs-data'
 alias nfs-failover='sudo systemctl stop keepalived'
@@ -1623,7 +1623,7 @@ networks:
 
 ```bash
 # Deploy stack
-docker stack deploy -c docker-stack. yml myapp
+docker stack deploy -c docker-stack.yml myapp
 ```
 
 ---
