@@ -381,7 +381,7 @@ if ! mountpoint -q /mnt/nfs-data; then
 fi
 
 # ตรวจสอบว่าเขียนไฟล์ได้
-if ! touch /mnt/nfs-data/. health_check 2>/dev/null; then
+if ! touch /mnt/nfs-data/.health_check 2>/dev/null; then
     exit 1
 fi
 
@@ -403,7 +403,7 @@ echo $?  # ควรได้ 0 (success) บน nfs1 ที่เป็น Prim
 sudo tee /usr/local/bin/keepalived_master.sh << 'EOF'
 #!/bin/bash
 
-LOGFILE="/var/log/nfs-ha. log"
+LOGFILE="/var/log/nfs-ha.log"
 MAX_RETRIES=5
 
 log() {
@@ -417,32 +417,35 @@ log "Hostname: $(hostname)"
 # รอให้ peer node demote DRBD (สำคัญมาก!)
 log "Waiting for peer to demote DRBD..."
 WAIT_COUNT=0
-MAX_WAIT=30
+MAX_WAIT=30  # รอสูงสุด 30 วินาที
 
 while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
     PEER_ROLE=$(drbdadm role nfs-data 2>&1)
     log "DRBD role: $PEER_ROLE"
-    
+
+    # ถ้าเรายังเป็น Secondary และ peer ก็เป็น Secondary = พร้อม promote
     if echo "$PEER_ROLE" | grep -q "Secondary/Secondary"; then
         log "Peer has released DRBD (Secondary/Secondary)"
         break
     fi
-    
+
+    # ถ้าเราเป็น Secondary และ peer เป็น Primary = peer ยังไม่ปล่อย
     if echo "$PEER_ROLE" | grep -q "Secondary/Primary"; then
         log "Waiting for peer to demote...  ($WAIT_COUNT/$MAX_WAIT)"
         sleep 1
         WAIT_COUNT=$((WAIT_COUNT + 1))
         continue
     fi
-    
+
+    # ถ้า connection state อื่นๆ
     CSTATE=$(drbdadm cstate nfs-data 2>&1)
     log "Connection state: $CSTATE"
-    
+
     if [ "$CSTATE" = "StandAlone" ]; then
         log "WARNING: Running in StandAlone mode (peer down? )"
         break
     fi
-    
+
     sleep 1
     WAIT_COUNT=$((WAIT_COUNT + 1))
 done
@@ -451,15 +454,16 @@ if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
     log "WARNING: Timeout waiting for peer, will try to promote anyway"
 fi
 
+# เพิ่มเวลารอเล็กน้อย
 sleep 2
 
-# 1. Promote DRBD to Primary
+# 1. Promote DRBD to Primary (with retry)
 log "Promoting DRBD to Primary..."
 RETRY=0
 while [ $RETRY -lt $MAX_RETRIES ]; do
     ERROR_MSG=$(drbdadm primary nfs-data 2>&1)
     PROMOTE_EXIT=$?
-    
+
     if [ $PROMOTE_EXIT -eq 0 ]; then
         log "DRBD promoted successfully"
         break
@@ -467,19 +471,21 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
         RETRY=$((RETRY + 1))
         log "Failed to promote DRBD (exit code: $PROMOTE_EXIT), retry $RETRY/$MAX_RETRIES"
         log "Error: $ERROR_MSG"
-        
+
+        # ถ้า error คือ "Multiple primaries not allowed"
         if echo "$ERROR_MSG" | grep -q "Multiple primaries"; then
             log "ERROR:  Peer is still Primary!  Cannot promote."
-            
+
             if [ $RETRY -eq $MAX_RETRIES ]; then
                 log "CRITICAL: Peer refused to demote after $MAX_WAIT seconds"
                 log "Manual intervention required on peer node"
                 exit 1
             fi
-            
+
             log "Waiting 5 more seconds for peer..."
             sleep 5
         else
+            # Error อื่นๆ
             if [ $RETRY -eq $MAX_RETRIES ]; then
                 log "ERROR: Failed to promote DRBD after $MAX_RETRIES attempts"
                 exit 1
@@ -489,14 +495,16 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
     fi
 done
 
+# รอให้ DRBD stable
 log "Waiting for DRBD to stabilize..."
 sleep 3
 
+# ตรวจสอบ DRBD status
 DRBD_ROLE=$(drbdadm role nfs-data 2>&1)
 log "DRBD Role: $DRBD_ROLE"
 
 if !  echo "$DRBD_ROLE" | grep -q "Primary"; then
-    log "ERROR:  DRBD is not Primary!"
+    log "ERROR: DRBD is not Primary!"
     log "Current role: $DRBD_ROLE"
     exit 1
 fi
@@ -507,14 +515,14 @@ if [ !  -d /mnt/nfs-data ]; then
     mkdir -p /mnt/nfs-data
 fi
 
-# Mount filesystem
-if ! mountpoint -q /mnt/nfs-data; then
+# Mount filesystem (with retry)
+if !  mountpoint -q /mnt/nfs-data; then
     log "Mounting filesystem..."
     RETRY=0
     while [ $RETRY -lt $MAX_RETRIES ]; do
         MOUNT_ERROR=$(mount /dev/drbd0 /mnt/nfs-data 2>&1)
         MOUNT_EXIT=$?
-        
+
         if [ $MOUNT_EXIT -eq 0 ]; then
             log "Filesystem mounted successfully"
             break
@@ -522,13 +530,14 @@ if ! mountpoint -q /mnt/nfs-data; then
             RETRY=$((RETRY + 1))
             log "Failed to mount (exit:  $MOUNT_EXIT), retry $RETRY/$MAX_RETRIES"
             log "Error: $MOUNT_ERROR"
-            
+
             if [ $RETRY -eq $MAX_RETRIES ]; then
                 log "ERROR: Failed to mount filesystem"
+                # Demote DRBD on failure
                 drbdadm secondary nfs-data
                 exit 1
             fi
-            
+
             sleep 2
         fi
     done
@@ -536,7 +545,8 @@ else
     log "Filesystem already mounted"
 fi
 
-if !  mountpoint -q /mnt/nfs-data; then
+# ตรวจสอบ mount
+if ! mountpoint -q /mnt/nfs-data; then
     log "ERROR: Filesystem is not mounted!"
     drbdadm secondary nfs-data
     exit 1
@@ -557,16 +567,17 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
     else
         RETRY=$((RETRY + 1))
         log "Failed to start NFS, retry $RETRY/$MAX_RETRIES..."
-        
+
         if [ $RETRY -eq $MAX_RETRIES ]; then
             log "ERROR: Failed to start NFS server"
             exit 1
         fi
-        
+
         sleep 2
     fi
 done
 
+# รอให้ NFS พร้อม
 sleep 2
 
 # 5. Export NFS shares
@@ -580,7 +591,7 @@ fi
 # 6. ตรวจสอบสถานะสุดท้าย
 log "Final status check..."
 log "DRBD:  $(drbdadm role nfs-data)"
-log "Mount:  $(mount | grep drbd || echo 'Not mounted')"
+log "Mount: $(mount | grep drbd || echo 'Not mounted')"
 log "NFS: $(systemctl is-active nfs-server)"
 log "Exports: $(exportfs -v 2>/dev/null | wc -l) shares"
 
