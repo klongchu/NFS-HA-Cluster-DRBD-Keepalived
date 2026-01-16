@@ -1001,7 +1001,7 @@ vrrp_instance NFS_HA {
     }
     
     notify_master "/usr/local/bin/keepalived_master.sh"
-    notify_backup "/usr/local/bin/keepalived_backup. sh"
+    notify_backup "/usr/local/bin/keepalived_backup.sh"
     notify_fault  "/usr/local/bin/keepalived_fault.sh"
     notify_stop   "/usr/local/bin/keepalived_cleanup.sh"
 }
